@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-electron/
+release/
+public/models/*.task
+public/mediapipe/
+userData/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local
