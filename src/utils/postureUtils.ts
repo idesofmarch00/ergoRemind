@@ -55,13 +55,22 @@ export function extractPostureSignals(landmarks: PostureLandmark[], settings: Ap
 /** Converts posture signals into a 0 to 100 posture score. */
 export function calculatePostureScore(signals: PostureSignals, settings: AppSettings): number {
   const thresholdNorm = settings.slouchThreshold / 100;
-  // Head forward: only penalize when ear/shoulder ratio exceeds 0.88 (forgiving baseline)
-  const headPenalty = Math.max(0, (signals.headForwardRatio - 0.88) * 150);
-  // Slouch: penalty scaled by user's threshold setting
-  const slouchPenalty = Math.max(0, (signals.slouchDelta / thresholdNorm) * 35);
-  // Tilt: ignore shoulder tilt < 0.06 (natural micro-movements), reduced multiplier
-  const tiltPenalty = Math.max(0, (signals.tiltDelta - 0.06) * 150);
-  const totalPenalty = headPenalty * 0.35 + slouchPenalty * 0.45 + tiltPenalty * 0.2;
+
+  // headForwardRatio = earMidY / shoulderMidY. In normalized coords (0 = top),
+  // ears are above shoulders so ratio is typically 0.7–0.85 when upright.
+  // As you slouch, ears drop toward shoulders → ratio approaches 1.0+.
+  // Penalize when ratio exceeds 0.92 (original baseline).
+  const headPenalty = Math.max(0, (signals.headForwardRatio - 0.92) * 200);
+
+  // slouchDelta = current nose Y - calibrated nose Y. Positive means nose dropped.
+  // Divide by threshold to let user control sensitivity.
+  const slouchPenalty = Math.max(0, (signals.slouchDelta / thresholdNorm) * 40);
+
+  // tiltDelta = abs(leftShoulder.y - rightShoulder.y). Small values are normal.
+  // Only penalize above 0.04 dead-zone (natural sway).
+  const tiltPenalty = Math.max(0, (signals.tiltDelta - 0.04) * 250);
+
+  const totalPenalty = headPenalty * 0.4 + slouchPenalty * 0.4 + tiltPenalty * 0.2;
   return Math.max(0, Math.min(100, 100 - totalPenalty));
 }
 
@@ -75,7 +84,7 @@ export function analyzePosture(landmarks: PostureLandmark[], settings: AppSettin
   const score = calculatePostureScore(signals, settings);
   return {
     score,
-    isGood: score >= 60,
+    isGood: score >= 85,   // threshold raised: below 85 = bad posture
     headForward: signals.headForwardRatio,
     slouch: signals.slouchDelta,
     tilt: signals.tiltDelta,

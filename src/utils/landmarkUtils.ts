@@ -29,7 +29,7 @@ const REQUIRED_LANDMARKS = [
 ] as const;
 
 /** Returns true when every required landmark is visible enough to analyze. */
-export function hasRequiredLandmarks(landmarks: PostureLandmark[], minVisibility = 0.5): boolean {
+export function hasRequiredLandmarks(landmarks: PostureLandmark[], minVisibility = 0.2): boolean {
   return REQUIRED_LANDMARKS.every((index) => {
     const landmark = landmarks[index];
     return Boolean(landmark && landmark.visibility >= minVisibility);

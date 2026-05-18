@@ -185,13 +185,17 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
           if (!firstPose) {
             setLandmarks(null);
           } else {
-            const normalized: PostureLandmark[] = firstPose.map((lm, idx) => ({
-              x: lm.x,
-              y: lm.y,
-              z: lm.z,
-              // worldLandmarks have no visibility; use the worldLandmarks only for depth
-              visibility: result.landmarks[0]?.[idx]?.visibility ?? 0,
-            }));
+            const normalized: PostureLandmark[] = firstPose.map((lm) => {
+              // NormalizedLandmark.visibility may be undefined in Tasks Vision API.
+              // Cast through unknown to safely check the property.
+              const raw = lm as unknown as { x: number; y: number; z: number; visibility?: number };
+              return {
+                x: raw.x,
+                y: raw.y,
+                z: raw.z,
+                visibility: raw.visibility ?? 1.0,
+              };
+            });
             setLandmarks(normalized);
           }
         } catch (detectionError) {
