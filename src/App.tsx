@@ -125,9 +125,16 @@ export default function App(): JSX.Element {
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-6">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal text-slate-50">ergoRemind</h1>
-            <p className="text-sm text-slate-400">Local posture monitoring</p>
+          <div className="flex items-center gap-3">
+            <img
+              src="/icon.png"
+              className="h-10 w-10 rounded-xl border border-slate-700 bg-slate-900/60 p-1 shadow-lg shadow-green-500/10 backdrop-blur-md transition-all duration-300 hover:scale-105"
+              alt="ergoRemind logo"
+            />
+            <div>
+              <h1 className="text-2xl font-semibold tracking-normal text-slate-50">ergoRemind</h1>
+              <p className="text-sm text-slate-400">Local posture monitoring</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <nav className="flex rounded-md border border-slate-700 bg-slate-900 p-1">

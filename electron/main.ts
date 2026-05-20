@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, powerMonitor } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppSettings, DailyStats, NotificationPayload, PostureSession, TrayStatus } from '../src/types';
@@ -26,6 +26,7 @@ async function createWindow(): Promise<BrowserWindow> {
     minHeight: 600,
     show: false,
     titleBarStyle: 'hiddenInset',
+    icon: path.join(__dirname, '../assets/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -38,6 +39,35 @@ async function createWindow(): Promise<BrowserWindow> {
     window.webContents.openDevTools();
     if (!settings.startMinimized) {
       window.show();
+    }
+  });
+
+  // Power monitor listeners to save resources when user is idle
+  powerMonitor.on('suspend', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ergoremind:pause-monitoring');
+      updateTrayIcon('paused');
+    }
+  });
+
+  powerMonitor.on('lock-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ergoremind:pause-monitoring');
+      updateTrayIcon('paused');
+    }
+  });
+
+  powerMonitor.on('unlock-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ergoremind:resume-monitoring');
+      updateTrayIcon('good');
+    }
+  });
+
+  powerMonitor.on('resume', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ergoremind:resume-monitoring');
+      updateTrayIcon('good');
     }
   });
 
