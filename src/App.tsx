@@ -73,7 +73,7 @@ export default function App(): JSX.Element {
     const playAlert = () => {
       if (settings?.soundEnabled) {
         const audio = new Audio(alertSound);
-        audio.play().catch(() => {});
+        audio.play().catch(() => { });
       }
     };
 
@@ -127,7 +127,7 @@ export default function App(): JSX.Element {
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
             <img
-              src="/icon.png"
+              src="./icon.png"
               className="h-10 w-10 rounded-xl border border-slate-700 bg-slate-900/60 p-1 shadow-lg shadow-green-500/10 backdrop-blur-md transition-all duration-300 hover:scale-105"
               alt="ergoRemind logo"
             />
@@ -141,9 +141,8 @@ export default function App(): JSX.Element {
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  className={`rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-400/50 ${
-                    activeView === tab.id ? 'bg-green-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'
-                  }`}
+                  className={`rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-400/50 ${activeView === tab.id ? 'bg-green-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'
+                    }`}
                   type="button"
                   onClick={() => {
                     setActiveView(tab.id);

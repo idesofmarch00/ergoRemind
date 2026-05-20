@@ -116,8 +116,20 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
 
     async function initModel(): Promise<void> {
       try {
-        const wasmPath = window.location.origin + '/mediapipe/wasm';
-        const modelPath = import.meta.env.VITE_MODEL_PATH ?? '/models/pose_landmarker_lite.task';
+        const isPackaged = !window.location.href.startsWith('http');
+        
+        let wasmPath: string;
+        let modelPath: string;
+        
+        if (isPackaged) {
+          // Resolve relative to the current HTML file's location to work under file:// protocol
+          const baseHref = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
+          wasmPath = `${baseHref}/mediapipe/wasm`;
+          modelPath = `${baseHref}/models/pose_landmarker_lite.task`;
+        } else {
+          wasmPath = window.location.origin + '/mediapipe/wasm';
+          modelPath = import.meta.env.VITE_MODEL_PATH ?? '/models/pose_landmarker_lite.task';
+        }
 
         const filesetResolver = await FilesetResolver.forVisionTasks(wasmPath);
         if (cancelled) return;
