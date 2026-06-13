@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  content: ['./index.html', './overlay.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       fontFamily: {
@@ -12,6 +12,7 @@ export default {
           good: '#22c55e',
           bad: '#ef4444',
           neutral: '#64748b',
+          warning: '#f59e0b',
         },
       },
     },

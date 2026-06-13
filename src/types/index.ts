@@ -1,8 +1,10 @@
 export type NotificationType = 'posture' | 'standup' | 'eye';
 
-export type TrayStatus = 'good' | 'bad' | 'paused';
+export type TrayStatus = 'good' | 'bad' | 'paused' | 'distracted';
 
 export type AlertState = 'IDLE' | 'MONITORING' | 'BAD_POSTURE' | 'ALERTING' | 'COOLDOWN';
+
+export type FocusGuardState = 'disabled' | 'monitoring' | 'distracted' | 'alerting' | 'cooldown';
 
 export interface PostureLandmark {
   x: number;
@@ -47,6 +49,30 @@ export interface AppSettings {
   selectedCamera: string;
   startMinimized: boolean;
   calibration: CalibrationData | null;
+  focusGuardEnabled: boolean;
+  blocklist: string[];
+  focusCheckInterval: number;
+  distractionAlertDelay: number;
+  distractionCooldown: number;
+}
+
+export interface DistractionEvent {
+  appName: string;
+  startTime: number;
+  endTime: number;
+  durationMs: number;
+}
+
+export interface FocusStats {
+  totalDistractionMs: number;
+  distractionCount: number;
+  focusPercentage: number;
+  distractionsByApp: Record<string, number>;
+}
+
+export interface ActiveWindowInfo {
+  appName: string;
+  windowTitle: string;
 }
 
 export interface DailyStats {
@@ -54,6 +80,9 @@ export interface DailyStats {
   sessions: PostureSession[];
   totalGoodMs: number;
   totalBadMs: number;
+  distractionEvents: DistractionEvent[];
+  focusStats: FocusStats;
+  totalTrackingMs: number;
 }
 
 export interface NotificationPayload {
@@ -76,6 +105,14 @@ export interface ergoremindAPI {
   onEyeReminder: (callback: () => void) => () => void;
   onPauseMonitoring: (callback: () => void) => () => void;
   onResumeMonitoring: (callback: () => void) => () => void;
+  startFocusGuard: () => Promise<void>;
+  stopFocusGuard: () => Promise<void>;
+  getFocusStats: () => Promise<FocusStats>;
+  dismissOverlay: () => Promise<void>;
+  onDistractionDetected: (callback: (event: { appName: string; duration: number }) => void) => () => void;
+  onFocusRestored: (callback: () => void) => () => void;
+  onFocusStatsUpdated: (callback: (stats: FocusStats) => void) => () => void;
+  onToggleFocusGuard: (callback: () => void) => () => void;
 }
 
 export interface WorkerInitMessage {

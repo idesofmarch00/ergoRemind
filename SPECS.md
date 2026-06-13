@@ -386,3 +386,9 @@ userData/
 .DS_Store
 Thumbs.db
 ```
+
+---
+
+## 12. Focus Guard Spec
+
+For full technical specifications of the Focus Guard active window monitoring, transparent overlay window, state machine, settings JSON schema, stats JSON schema, and IPC channels, see [PRD-focus-guard.md](file:///Users/sahilahmed/cse/projects/electron-app/PRD-focus-guard.md) and [context/architecture.md](file:///Users/sahilahmed/cse/projects/electron-app/context/architecture.md).

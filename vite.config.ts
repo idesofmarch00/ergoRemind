@@ -13,6 +13,14 @@ export default defineConfig({
       '@electron': path.resolve(__dirname, './electron'),
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        overlay: path.resolve(__dirname, 'overlay.html'),
+      },
+    },
+  },
   plugins: [
     {
       name: 'mediapipe-bypass',

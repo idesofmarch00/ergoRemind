@@ -6,7 +6,7 @@
 **Type:** Electron desktop app (local, no distribution/packaging needed)  
 **Target Platforms:** macOS + Windows (same codebase, `npm run dev`)  
 **Primary User:** The developer themselves — a software engineer working long hours at a desk  
-**Core Purpose:** Real-time AI posture coaching + wellness reminders using webcam
+**Core Purpose:** Real-time AI posture coaching + wellness reminders using webcam, plus active window distraction monitoring (see [PRD-focus-guard.md](file:///Users/sahilahmed/cse/projects/electron-app/PRD-focus-guard.md)).
 
 ---
 

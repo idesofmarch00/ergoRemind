@@ -7,6 +7,7 @@ import { usePoseDetection } from '@/hooks/usePoseDetection';
 import { usePostureAnalysis } from '@/hooks/usePostureAnalysis';
 import { usePostureSession } from '@/hooks/usePostureSession';
 import { useSettings } from '@/hooks/useSettings';
+import { useFocusGuard } from '@/hooks/useFocusGuard';
 import type { AppSettings } from '@/types';
 import { buildCalibration } from '@/utils/postureUtils';
 import alertSound from '../assets/sounds/alert.wav';
@@ -18,6 +19,7 @@ export default function App(): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { settings, isLoading, error: settingsError, updateSettings } = useSettings();
   const [isMonitoring, setIsMonitoring] = useState(true);
+  const focusGuard = useFocusGuard(settings ?? fallbackSettings);
   const [activeView, setActiveView] = useState<ActiveView>('monitor');
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -93,13 +95,25 @@ export default function App(): JSX.Element {
     const unsubscribeResume = window.ergoremind.onResumeMonitoring(() => {
       setIsMonitoring(true);
     });
+    const unsubscribeToggleFocus = window.ergoremind.onToggleFocusGuard(() => {
+      if (settings) {
+        void updateSettings({ focusGuardEnabled: !settings.focusGuardEnabled });
+      }
+    });
+    const unsubscribeDetectDistraction = window.ergoremind.onDistractionDetected((event) => {
+      if (event.duration === 0) {
+        setNotice(`Focus alert: Distraction detected (${event.appName})!`);
+      }
+    });
     return () => {
       unsubscribeStandup();
       unsubscribeEye();
       unsubscribePause();
       unsubscribeResume();
+      unsubscribeToggleFocus();
+      unsubscribeDetectDistraction();
     };
-  }, [settings?.soundEnabled]);
+  }, [settings, updateSettings]);
 
   useEffect(() => {
     if (!notice) {
@@ -178,11 +192,11 @@ export default function App(): JSX.Element {
           <aside className="space-y-5">
             {activeView === 'monitor' && (
               <>
-                <StatsPanel stats={sessionState.stats} session={sessionState.session} />
+                <StatsPanel stats={sessionState.stats} session={sessionState.session} focusStats={focusGuard.focusStats} />
                 <SettingsPanel settings={settings} cameras={poseDetection.cameras} onSettingsChange={handleSettingsChange} onCalibrate={handleCalibrate} />
               </>
             )}
-            {activeView === 'stats' && <StatsPanel stats={sessionState.stats} session={sessionState.session} />}
+            {activeView === 'stats' && <StatsPanel stats={sessionState.stats} session={sessionState.session} focusStats={focusGuard.focusStats} />}
             {activeView === 'settings' && (
               <SettingsPanel settings={settings} cameras={poseDetection.cameras} onSettingsChange={handleSettingsChange} onCalibrate={handleCalibrate} />
             )}
@@ -203,4 +217,9 @@ const fallbackSettings: AppSettings = {
   selectedCamera: 'default',
   startMinimized: false,
   calibration: null,
+  focusGuardEnabled: false,
+  blocklist: [],
+  focusCheckInterval: 5,
+  distractionAlertDelay: 10,
+  distractionCooldown: 60,
 };

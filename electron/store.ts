@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AppSettings, DailyStats, PostureSession } from '../src/types';
+import type { AppSettings, DailyStats, PostureSession, DistractionEvent } from '../src/types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   slouchThreshold: 25,       // higher = more forgiving (minor tilts ignored)
@@ -13,6 +13,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   selectedCamera: 'default',
   startMinimized: false,
   calibration: null,
+  focusGuardEnabled: false,
+  blocklist: [],
+  focusCheckInterval: 5,
+  distractionAlertDelay: 10,
+  distractionCooldown: 60,
 };
 
 /** Returns today's date in YYYY-MM-DD format for stats file naming. */
@@ -27,6 +32,14 @@ export function createDefaultStats(date = getTodayKey()): DailyStats {
     sessions: [],
     totalGoodMs: 0,
     totalBadMs: 0,
+    distractionEvents: [],
+    focusStats: {
+      totalDistractionMs: 0,
+      distractionCount: 0,
+      focusPercentage: 100,
+      distractionsByApp: {},
+    },
+    totalTrackingMs: 0,
   };
 }
 
@@ -53,6 +66,7 @@ function normalizeSettings(value: Partial<AppSettings>): AppSettings {
     ...DEFAULT_SETTINGS,
     ...value,
     calibration: value.calibration ?? null,
+    blocklist: value.blocklist ?? [],
   };
 }
 
@@ -82,7 +96,19 @@ export async function saveSettings(update: Partial<AppSettings>): Promise<AppSet
 export async function readStats(date = getTodayKey()): Promise<DailyStats> {
   try {
     const raw = await readFile(await getStatsPath(date), 'utf8');
-    return JSON.parse(raw) as DailyStats;
+    const stats = JSON.parse(raw) as DailyStats;
+    // Normalize old stats format
+    if (!stats.distractionEvents) stats.distractionEvents = [];
+    if (!stats.focusStats) {
+      stats.focusStats = {
+        totalDistractionMs: 0,
+        distractionCount: 0,
+        focusPercentage: 100,
+        distractionsByApp: {},
+      };
+    }
+    if (stats.totalTrackingMs === undefined) stats.totalTrackingMs = 0;
+    return stats;
   } catch {
     return createDefaultStats(date);
   }
@@ -108,5 +134,49 @@ export async function saveSession(session: PostureSession): Promise<DailyStats> 
     totalGoodMs: stats.totalGoodMs + Math.round(session.goodFrames * frameMs),
     totalBadMs: stats.totalBadMs + Math.round(session.badFrames * frameMs),
   };
+  return saveStats(nextStats);
+}
+
+/** Recalculates and updates focusStats for a DailyStats object based on distractionEvents and totalTrackingMs. */
+export function recalculateFocusStats(stats: DailyStats): void {
+  const distractionEvents = stats.distractionEvents || [];
+  const totalDistractionMs = distractionEvents.reduce((acc, e) => acc + e.durationMs, 0);
+  const distractionCount = distractionEvents.length;
+  
+  const distractionsByApp: Record<string, number> = {};
+  for (const event of distractionEvents) {
+    distractionsByApp[event.appName] = (distractionsByApp[event.appName] || 0) + event.durationMs;
+  }
+
+  const totalTrackingMs = stats.totalTrackingMs || totalDistractionMs || 1; // avoid division by zero
+  const focusPercentage = Math.max(0, Math.min(100, Math.round(((totalTrackingMs - totalDistractionMs) / totalTrackingMs) * 100)));
+
+  stats.focusStats = {
+    totalDistractionMs,
+    distractionCount,
+    focusPercentage,
+    distractionsByApp,
+  };
+}
+
+/** Saves a completed distraction event to today's stats file. */
+export async function saveDistractionEvent(event: DistractionEvent): Promise<DailyStats> {
+  const stats = await readStats();
+  const nextStats: DailyStats = {
+    ...stats,
+    distractionEvents: [...(stats.distractionEvents || []), event],
+  };
+  recalculateFocusStats(nextStats);
+  return saveStats(nextStats);
+}
+
+/** Increments the total tracking time of Focus Guard and saves it. */
+export async function incrementTrackingTime(ms: number): Promise<DailyStats> {
+  const stats = await readStats();
+  const nextStats: DailyStats = {
+    ...stats,
+    totalTrackingMs: (stats.totalTrackingMs || 0) + ms,
+  };
+  recalculateFocusStats(nextStats);
   return saveStats(nextStats);
 }

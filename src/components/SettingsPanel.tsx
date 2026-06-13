@@ -1,5 +1,6 @@
 import type { AppSettings } from '@/types';
 import { CameraSelector } from './CameraSelector';
+import { FocusSettings } from './FocusSettings';
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -55,6 +56,9 @@ export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
         <RangeSetting label="Eye-rule reminder" value={settings.eyeRuleInterval} min={10} max={60} suffix="min" onChange={updateNumber('eyeRuleInterval')} />
         <ToggleSetting label="Sound enabled" checked={settings.soundEnabled} onChange={updateBoolean('soundEnabled')} />
         <ToggleSetting label="Start minimized" checked={settings.startMinimized} onChange={updateBoolean('startMinimized')} />
+        
+        {/* Focus Guard Settings Section */}
+        <FocusSettings settings={settings} onSettingsChange={onSettingsChange} />
       </div>
     </section>
   );

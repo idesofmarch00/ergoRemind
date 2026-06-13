@@ -386,3 +386,9 @@ A file is complete when:
 - Never load the MediaPipe WASM from CDN — copy to public/ for offline use
 - Never commit the `pose_landmarker_lite.task` file — it's 5MB binary, add to .gitignore
 - Never use `electron-rebuild` unless specifically needed — keep deps minimal
+
+---
+
+## 🛡️ Focus Guard Addendum
+
+For full details on the Focus Guard feature implementation (built as steps 22 to 35), refer to [PRD-focus-guard.md](file:///Users/sahilahmed/cse/projects/electron-app/PRD-focus-guard.md) and [context/code-standards.md](file:///Users/sahilahmed/cse/projects/electron-app/context/code-standards.md).

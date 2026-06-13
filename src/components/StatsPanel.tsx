@@ -1,8 +1,10 @@
-import type { DailyStats, PostureSession } from '@/types';
+import type { DailyStats, PostureSession, FocusStats as FocusStatsType } from '@/types';
+import { FocusStats } from './FocusStats';
 
 interface StatsPanelProps {
   stats: DailyStats | null;
   session: PostureSession;
+  focusStats: FocusStatsType;
 }
 
 /** Calculates a bounded percentage for the good-posture progress bar. */
@@ -18,7 +20,7 @@ function getGoodPercent(stats: DailyStats | null, session: PostureSession): numb
 
 /** Shows simple daily posture stats and session history. */
 export function StatsPanel(props: StatsPanelProps): JSX.Element {
-  const { stats, session } = props;
+  const { stats, session, focusStats } = props;
   const goodPercent = getGoodPercent(stats, session);
 
   return (
@@ -43,6 +45,9 @@ export function StatsPanel(props: StatsPanelProps): JSX.Element {
           <p className="mt-1 font-semibold text-slate-100">{session.totalFrames}</p>
         </div>
       </div>
+
+      {/* Focus statistics section */}
+      <FocusStats focusStats={focusStats} />
     </section>
   );
 }

@@ -46,8 +46,18 @@
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "ergoRemind requires access to the camera to monitor your posture in real-time."
+      }
     },
+    "asar": true,
+    "asarUnpack": [
+      "**/dist/mediapipe/**/*",
+      "**/dist/models/**/*"
+    ],
     "win": {
       "icon": "assets/icon.png",
       "target": [
