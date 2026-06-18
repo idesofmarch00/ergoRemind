@@ -193,12 +193,12 @@ export default function App(): JSX.Element {
             {activeView === 'monitor' && (
               <>
                 <StatsPanel stats={sessionState.stats} session={sessionState.session} focusStats={focusGuard.focusStats} />
-                <SettingsPanel settings={settings} cameras={poseDetection.cameras} onSettingsChange={handleSettingsChange} onCalibrate={handleCalibrate} />
+                <SettingsPanel settings={settings} cameras={poseDetection.cameras} onSettingsChange={handleSettingsChange} onCalibrate={handleCalibrate} focusCapability={focusGuard.capability} focusError={focusGuard.error} />
               </>
             )}
             {activeView === 'stats' && <StatsPanel stats={sessionState.stats} session={sessionState.session} focusStats={focusGuard.focusStats} />}
             {activeView === 'settings' && (
-              <SettingsPanel settings={settings} cameras={poseDetection.cameras} onSettingsChange={handleSettingsChange} onCalibrate={handleCalibrate} />
+              <SettingsPanel settings={settings} cameras={poseDetection.cameras} onSettingsChange={handleSettingsChange} onCalibrate={handleCalibrate} focusCapability={focusGuard.capability} focusError={focusGuard.error} />
             )}
           </aside>
         </div>
@@ -222,4 +222,5 @@ const fallbackSettings: AppSettings = {
   focusCheckInterval: 5,
   distractionAlertDelay: 10,
   distractionCooldown: 60,
+  focusPrivacyNoticeSeen: false,
 };

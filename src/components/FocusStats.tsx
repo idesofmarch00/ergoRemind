@@ -38,7 +38,7 @@ export function FocusStats(props: FocusStatsProps): JSX.Element {
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-300 font-medium">Focus score</span>
-          <span className={`text-lg font-bold ${focusPercentage >= 80 ? 'text-green-400' : 'text-amber-400'}`}>
+          <span className={`text-lg font-bold ${focusPercentage >= 80 ? 'text-green-400' : focusPercentage >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
             {focusPercentage}%
           </span>
         </div>

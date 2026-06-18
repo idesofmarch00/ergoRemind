@@ -1,6 +1,5 @@
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PostureLandmark } from '@/types';
-import { PoseLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import type { PostureLandmark, WorkerInMessage, WorkerOutMessage } from '@/types';
 
 interface UsePoseDetectionOptions {
   videoRef: RefObject<HTMLVideoElement>;
@@ -17,15 +16,7 @@ interface UsePoseDetectionResult {
   refreshCameras: () => Promise<void>;
 }
 
-/**
- * Handles webcam stream setup and MediaPipe pose detection on the main thread.
- *
- * We intentionally run inference on the main thread (not a Web Worker) because
- * MediaPipe's WASM runtime uses `importScripts()` internally, which is
- * incompatible with ESM Web Workers (`{ type: 'module' }`). Running it here
- * matches the approach used by ergoSmart and PostureCorrectionAlarm-TFJs.
- * Performance is kept smooth by only processing every 3rd frame.
- */
+/** Handles webcam setup and delegates all MediaPipe inference to a Web Worker. */
 export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetectionResult {
   const { videoRef, selectedCamera, isMonitoring } = options;
   const [landmarks, setLandmarks] = useState<PostureLandmark[] | null>(null);
@@ -34,9 +25,10 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
   const [error, setError] = useState<string | null>(null);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const landmarkerRef = useRef<PoseLandmarker | null>(null);
+  const workerRef = useRef<Worker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const frameCounterRef = useRef(0);
+  const frameInFlightRef = useRef(false);
   const lastTimestampRef = useRef(-1);
 
   /** Enumerates available video input devices. */
@@ -66,15 +58,15 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
     try {
       stopStream();
       setError(null);
-      const constraints: MediaStreamConstraints = {
-        // Low resolution to conserve CPU/energy — MediaPipe only needs landmark
-        // positions, not pixel quality. 320x240 is plenty for pose detection.
-        video: selectedCamera === 'default'
-          ? { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } }
-          : { deviceId: { exact: selectedCamera }, width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } },
-        audio: false,
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const videoConstraints: MediaTrackConstraints = selectedCamera === 'default'
+        ? { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } }
+        : {
+            deviceId: { exact: selectedCamera },
+            width: { ideal: 320 },
+            height: { ideal: 240 },
+            frameRate: { ideal: 15 },
+          };
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
       streamRef.current = stream;
       const video = videoRef.current;
       if (video) {
@@ -82,10 +74,7 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
         try {
           await video.play();
         } catch (playError) {
-          // AbortError is expected when React re-mounts rapidly; ignore it.
-          if (playError instanceof DOMException && playError.name === 'AbortError') {
-            console.log('Video play interrupted, ignoring.');
-          } else {
+          if (!(playError instanceof DOMException && playError.name === 'AbortError')) {
             throw playError;
           }
         }
@@ -104,113 +93,104 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    frameInFlightRef.current = false;
   }, []);
 
-  /**
-   * Initializes the MediaPipe PoseLandmarker on the main thread.
-   * This avoids the "ModuleFactory not set" error that occurs when
-   * MediaPipe's importScripts() is called inside an ESM Web Worker.
-   */
+  /** Creates the pose worker and initializes its offline model and WASM assets. */
   useEffect(() => {
-    let cancelled = false;
+    const worker = new Worker(new URL('../workers/poseWorker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = worker;
+    const baseUrl = window.location.href.startsWith('http') ? window.location.origin : 'app://local';
+    const initMessage: WorkerInMessage = {
+      type: 'INIT',
+      wasmPath: `${baseUrl}/mediapipe/wasm`,
+      modelPath: `${baseUrl}/models/pose_landmarker_lite.task`,
+    };
 
-    async function initModel(): Promise<void> {
-      try {
-        const isPackaged = !window.location.href.startsWith('http');
-        
-        let wasmPath: string;
-        let modelPath: string;
-        
-        if (isPackaged) {
-          wasmPath = 'app://mediapipe/wasm';
-          modelPath = 'app://models/pose_landmarker_lite.task';
-        } else {
-          wasmPath = window.location.origin + '/mediapipe/wasm';
-          modelPath = import.meta.env.VITE_MODEL_PATH ?? '/models/pose_landmarker_lite.task';
-        }
-
-        const filesetResolver = await FilesetResolver.forVisionTasks(wasmPath);
-        if (cancelled) return;
-
-        const landmarker = await PoseLandmarker.createFromOptions(filesetResolver, {
-          baseOptions: {
-            modelAssetPath: modelPath,
-            delegate: 'CPU',
-          },
-          runningMode: 'VIDEO',
-          numPoses: 1,
-        });
-        if (cancelled) return;
-
-        landmarkerRef.current = landmarker;
+    /** Applies typed pose-worker responses to renderer state. */
+    const handleWorkerMessage = (event: MessageEvent<WorkerOutMessage>): void => {
+      const message = event.data;
+      if (message.type === 'READY') {
         setIsModelReady(true);
-        console.log('MediaPipe PoseLandmarker ready (main thread).');
-      } catch (initError) {
-        if (!cancelled) {
-          setError(initError instanceof Error ? initError.message : 'Unable to load MediaPipe pose model.');
-        }
+        return;
       }
-    }
+      if (message.type === 'INIT_ERROR') {
+        frameInFlightRef.current = false;
+        setError(message.error);
+        setIsModelReady(false);
+        return;
+      }
+      if (message.type === 'LANDMARKS') {
+        frameInFlightRef.current = false;
+        setLandmarks(message.landmarks);
+        return;
+      }
+      if (message.type === 'NO_PERSON_DETECTED') {
+        frameInFlightRef.current = false;
+        setLandmarks(null);
+        return;
+      }
+      frameInFlightRef.current = false;
+      setError(message.error);
+    };
 
-    void initModel();
+    /** Reports an unrecoverable worker runtime failure to the UI. */
+    const handleWorkerError = (): void => {
+      frameInFlightRef.current = false;
+      setIsModelReady(false);
+      setError('Pose detection worker stopped unexpectedly.');
+    };
+
+    worker.addEventListener('message', handleWorkerMessage);
+    worker.addEventListener('error', handleWorkerError);
+    worker.postMessage(initMessage);
 
     return () => {
-      cancelled = true;
-      landmarkerRef.current?.close();
-      landmarkerRef.current = null;
+      const destroyMessage: WorkerInMessage = { type: 'DESTROY' };
+      worker.postMessage(destroyMessage);
+      worker.removeEventListener('message', handleWorkerMessage);
+      worker.removeEventListener('error', handleWorkerError);
+      worker.terminate();
+      workerRef.current = null;
+      frameInFlightRef.current = false;
       setIsModelReady(false);
     };
   }, []);
 
-  /**
-   * Starts the detection loop. Runs pose detection every 3rd frame to keep
-   * CPU usage low while maintaining responsive feedback.
-   */
+  /** Starts a throttled capture loop that transfers frames to the pose worker. */
   const runLoop = useCallback((): void => {
     const tick = (): void => {
       const video = videoRef.current;
       frameCounterRef.current += 1;
+      const canProcess = isMonitoring
+        && isModelReady
+        && !frameInFlightRef.current
+        && workerRef.current
+        && video
+        && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        && video.videoWidth > 0
+        && video.videoHeight > 0
+        && frameCounterRef.current % 3 === 0;
 
-      if (
-        isMonitoring &&
-        isModelReady &&
-        landmarkerRef.current &&
-        video &&
-        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        video.videoWidth > 0 &&
-        video.videoHeight > 0 &&
-        frameCounterRef.current % 3 === 0
-      ) {
-        // MediaPipe requires strictly increasing timestamps.
-        const now = performance.now();
-        if (now <= lastTimestampRef.current) {
-          animationFrameRef.current = requestAnimationFrame(tick);
-          return;
-        }
-        lastTimestampRef.current = now;
-
-        try {
-          const result = landmarkerRef.current.detectForVideo(video, now);
-          const firstPose = result.landmarks[0];
-          if (!firstPose) {
-            setLandmarks(null);
-          } else {
-            const normalized: PostureLandmark[] = firstPose.map((lm) => {
-              // NormalizedLandmark.visibility may be undefined in Tasks Vision API.
-              // Cast through unknown to safely check the property.
-              const raw = lm as unknown as { x: number; y: number; z: number; visibility?: number };
-              return {
-                x: raw.x,
-                y: raw.y,
-                z: raw.z,
-                visibility: raw.visibility ?? 1.0,
-              };
+      if (canProcess && workerRef.current && video) {
+        const timestamp = performance.now();
+        if (timestamp > lastTimestampRef.current) {
+          lastTimestampRef.current = timestamp;
+          frameInFlightRef.current = true;
+          void createImageBitmap(video)
+            .then((imageBitmap) => {
+              if (!workerRef.current || !isMonitoring) {
+                imageBitmap.close();
+                frameInFlightRef.current = false;
+                return;
+              }
+              const message: WorkerInMessage = { type: 'PROCESS_FRAME', imageBitmap, timestamp };
+              workerRef.current.postMessage(message, [imageBitmap]);
+            })
+            .catch((captureError: unknown) => {
+              frameInFlightRef.current = false;
+              setError(captureError instanceof Error ? captureError.message : 'Unable to capture a video frame.');
             });
-            setLandmarks(normalized);
-          }
-        } catch (detectionError) {
-          // Don't crash the loop on individual frame errors
-          console.warn('Pose detection frame error:', detectionError);
         }
       }
 
@@ -220,7 +200,7 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
     tick();
   }, [isModelReady, isMonitoring, videoRef]);
 
-  /** Start/stop camera when monitoring state changes. */
+  /** Starts or stops the camera when monitoring state changes. */
   useEffect(() => {
     if (isMonitoring) {
       void startCamera();
@@ -233,7 +213,7 @@ export function usePoseDetection(options: UsePoseDetectionOptions): UsePoseDetec
     };
   }, [isMonitoring, startCamera, stopStream]);
 
-  /** Start/stop the detection loop when camera and model are ready. */
+  /** Starts or stops frame capture when the camera and worker are ready. */
   useEffect(() => {
     if (isMonitoring && isCameraReady && isModelReady) {
       stopLoop();

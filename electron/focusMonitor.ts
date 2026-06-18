@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AppSettings, ActiveWindowInfo, DistractionEvent } from '../src/types';
 import { saveDistractionEvent, incrementTrackingTime } from './store';
+import { matchesBlocklist } from '../src/utils/focusUtils';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +25,7 @@ export interface FocusMonitorCallbacks {
   onFocusRestored: () => void;
   onAlert: (appName: string, durationMs: number) => void;
   onStateChange: (state: string) => void;
+  onError: (message: string) => void;
 }
 
 /**
@@ -42,6 +44,8 @@ export class FocusMonitor {
   private lastAlertTime: number | null = null;
   private currentDistractedApp: string | null = null;
   private isPaused = false;
+  private pollInFlight = false;
+  private lastError: string | null = null;
 
   constructor(settings: AppSettings, callbacks: FocusMonitorCallbacks) {
     this.settings = settings;
@@ -57,8 +61,12 @@ export class FocusMonitor {
         appName: parts[0] || 'Unknown',
         windowTitle: parts[1] || '',
       };
-    } catch (error) {
-      console.error('FocusMonitor: Error executing AppleScript', error);
+    } catch {
+      const message = 'Focus Guard cannot read the active window. Allow your terminal or Electron under System Settings > Privacy & Security > Accessibility.';
+      if (message !== this.lastError) {
+        this.lastError = message;
+        this.callbacks.onError(message);
+      }
       return { appName: 'Unknown', windowTitle: '' };
     }
   }
@@ -72,18 +80,8 @@ export class FocusMonitor {
 
     const intervalMs = this.settings.focusCheckInterval * 1000;
     
-    this.intervalId = setInterval(async () => {
-      if (this.isPaused) return;
-
-      // Track active monitoring time
-      try {
-        await incrementTrackingTime(intervalMs);
-      } catch (err) {
-        console.error('FocusMonitor: Failed to increment tracking time', err);
-      }
-
-      const info = await this.getActiveWindow();
-      this.tick(info);
+    this.intervalId = setInterval(() => {
+      void this.poll(intervalMs);
     }, intervalMs);
   }
 
@@ -94,34 +92,21 @@ export class FocusMonitor {
       this.intervalId = null;
     }
 
-    if (this.distractionStartTime && this.currentDistractedApp) {
-      const durationMs = Date.now() - this.distractionStartTime;
-      const event: DistractionEvent = {
-        appName: this.currentDistractedApp,
-        startTime: this.distractionStartTime,
-        endTime: Date.now(),
-        durationMs,
-      };
-      try {
-        await saveDistractionEvent(event);
-      } catch (err) {
-        console.error('FocusMonitor: Failed to save final distraction event', err);
-      }
-    }
-
-    this.distractionStartTime = null;
-    this.currentDistractedApp = null;
-    this.state = 'monitoring';
+    await this.finishDistraction(Date.now());
+    this.resetState();
   }
 
   /** Pause monitoring (e.g. when system is locked or screen suspends). */
-  public pause(): void {
+  public async pause(): Promise<void> {
     this.isPaused = true;
+    await this.finishDistraction(Date.now());
+    this.resetState();
   }
 
   /** Resume monitoring. */
   public resume(): void {
     this.isPaused = false;
+    this.resetState();
   }
 
   /** Update settings without stopping. */
@@ -131,7 +116,24 @@ export class FocusMonitor {
 
     // If interval changed, restart polling
     if (oldInterval !== settings.focusCheckInterval && this.intervalId) {
-      this.stop().then(() => this.start());
+      void this.stop().then(() => this.start());
+    }
+  }
+
+  /** Runs one non-overlapping active-window poll and persistence update. */
+  private async poll(intervalMs: number): Promise<void> {
+    if (this.isPaused || this.pollInFlight) return;
+    this.pollInFlight = true;
+    try {
+      const info = await this.getActiveWindow();
+      if (info.appName === 'Unknown') return;
+      this.lastError = null;
+      await incrementTrackingTime(intervalMs);
+      await this.tick(info);
+    } catch {
+      this.callbacks.onError('Focus Guard could not update local tracking statistics.');
+    } finally {
+      this.pollInFlight = false;
     }
   }
 
@@ -142,7 +144,7 @@ export class FocusMonitor {
 
     // Do not count the app's own window as a distraction
     if (info.appName === 'ergoRemind' || info.appName === 'Electron') {
-      this.handleProductiveTick();
+      await this.handleProductiveTick();
       return;
     }
 
@@ -181,7 +183,7 @@ export class FocusMonitor {
       }
     } else {
       // Productive window active
-      this.handleProductiveTick();
+      await this.handleProductiveTick();
     }
   }
 
@@ -207,28 +209,41 @@ export class FocusMonitor {
             endTime: Date.now(),
             durationMs,
           };
-          try {
-            await saveDistractionEvent(event);
-          } catch (err) {
-            console.error('FocusMonitor: Failed to save distraction event', err);
-          }
+          await saveDistractionEvent(event);
         }
       }
     }
   }
 
+  /** Persists the active distraction up to the supplied end time. */
+  private async finishDistraction(endTime: number): Promise<void> {
+    if (!this.distractionStartTime || !this.currentDistractedApp) return;
+    const durationMs = endTime - this.distractionStartTime;
+    if (durationMs < 1000) return;
+    const event: DistractionEvent = {
+      appName: this.currentDistractedApp,
+      startTime: this.distractionStartTime,
+      endTime,
+      durationMs,
+    };
+    try {
+      await saveDistractionEvent(event);
+    } catch {
+      this.callbacks.onError('Focus Guard could not save the latest distraction event.');
+    }
+  }
+
+  /** Clears distraction timing and returns the state machine to monitoring. */
+  private resetState(): void {
+    this.distractionStartTime = null;
+    this.currentDistractedApp = null;
+    this.lastAlertTime = null;
+    this.state = 'monitoring';
+    this.callbacks.onStateChange(this.state);
+  }
+
   /** Check if the active window matches the blocklist. */
   private isDistraction(appName: string, windowTitle: string): boolean {
-    const list = this.settings.blocklist || [];
-    if (list.length === 0) return false;
-    
-    const appLower = appName.toLowerCase();
-    const titleLower = windowTitle.toLowerCase();
-    
-    return list.some(keyword => {
-      const cleanKeyword = keyword.trim().toLowerCase();
-      if (!cleanKeyword) return false;
-      return appLower.includes(cleanKeyword) || titleLower.includes(cleanKeyword);
-    });
+    return matchesBlocklist(this.settings.blocklist, appName, windowTitle);
   }
 }

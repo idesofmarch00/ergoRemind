@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import type { FocusStats, AppSettings } from '../types';
+import type { FocusStats, AppSettings, FocusGuardCapability } from '../types';
 import alertSound from '../../assets/sounds/alert.wav';
 
 interface UseFocusGuardResult {
@@ -8,6 +8,8 @@ interface UseFocusGuardResult {
   startFocusGuard: () => Promise<void>;
   stopFocusGuard: () => Promise<void>;
   reloadFocusStats: () => Promise<void>;
+  capability: FocusGuardCapability;
+  error: string | null;
 }
 
 /**
@@ -23,33 +25,48 @@ export function useFocusGuard(settings: AppSettings): UseFocusGuardResult {
     distractionsByApp: {},
   });
   const [currentDistraction, setCurrentDistraction] = useState<{ appName: string; duration: number } | null>(null);
+  const [capability, setCapability] = useState<FocusGuardCapability>({ supported: true, reason: null });
+  const [error, setError] = useState<string | null>(null);
 
   const reloadFocusStats = useCallback(async () => {
     if (!window.ergoremind) return;
     try {
       const stats = await window.ergoremind.getFocusStats();
       setFocusStats(stats);
-    } catch (err) {
-      console.error('useFocusGuard: Failed to load focus stats', err);
+    } catch {
+      setError('Unable to load today\'s Focus Guard statistics.');
     }
   }, []);
 
   const startFocusGuard = useCallback(async () => {
     if (!window.ergoremind) return;
-    await window.ergoremind.startFocusGuard();
+    try {
+      await window.ergoremind.startFocusGuard();
+    } catch {
+      setError('Unable to start Focus Guard.');
+    }
   }, []);
 
   const stopFocusGuard = useCallback(async () => {
     if (!window.ergoremind) return;
-    await window.ergoremind.stopFocusGuard();
-    setCurrentDistraction(null);
+    try {
+      await window.ergoremind.stopFocusGuard();
+      setCurrentDistraction(null);
+    } catch {
+      setError('Unable to stop Focus Guard.');
+    }
   }, []);
 
   useEffect(() => {
     if (!window.ergoremind) return;
 
     // Load initial stats
-    reloadFocusStats();
+    void reloadFocusStats();
+    void window.ergoremind.getFocusGuardCapability()
+      .then(setCapability)
+      .catch(() => {
+        setCapability({ supported: false, reason: 'Unable to determine Focus Guard platform support.' });
+      });
 
     // Subscribe to distraction detections
     const unsubscribeDetect = window.ergoremind.onDistractionDetected((event) => {
@@ -71,18 +88,20 @@ export function useFocusGuard(settings: AppSettings): UseFocusGuardResult {
     // Subscribe to focus restorations
     const unsubscribeRestore = window.ergoremind.onFocusRestored(() => {
       setCurrentDistraction(null);
-      reloadFocusStats();
+      void reloadFocusStats();
     });
 
     // Subscribe to real-time stats updates
     const unsubscribeStats = window.ergoremind.onFocusStatsUpdated((stats) => {
       setFocusStats(stats);
     });
+    const unsubscribeError = window.ergoremind.onFocusGuardError(setError);
 
     return () => {
       unsubscribeDetect();
       unsubscribeRestore();
       unsubscribeStats();
+      unsubscribeError();
     };
   }, [reloadFocusStats, settings.soundEnabled]);
 
@@ -92,5 +111,7 @@ export function useFocusGuard(settings: AppSettings): UseFocusGuardResult {
     startFocusGuard,
     stopFocusGuard,
     reloadFocusStats,
+    capability,
+    error,
   };
 }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppSettings, DailyStats, ergoremindAPI, NotificationPayload, PostureSession, TrayStatus, FocusStats } from '../src/types';
+import type { AppSettings, DailyStats, ergoremindAPI, NotificationPayload, PostureSession, TrayStatus, FocusStats, FocusGuardCapability } from '../src/types';
 
 /** Subscribes to a main-to-renderer IPC event with optional data and returns a cleanup function. */
 function subscribe<T = void>(channel: string, callback: (data: T) => void): () => void {
@@ -48,6 +48,8 @@ const api: ergoremindAPI = {
   stopFocusGuard: () => ipcRenderer.invoke('ergoremind:stop-focus-guard') as Promise<void>,
   /** renderer to main: retrieves distraction statistics. */
   getFocusStats: () => ipcRenderer.invoke('ergoremind:get-focus-stats') as Promise<FocusStats>,
+  /** renderer to main: reports whether active-window monitoring is supported. */
+  getFocusGuardCapability: () => ipcRenderer.invoke('ergoremind:get-focus-capability') as Promise<FocusGuardCapability>,
   /** renderer to main: requests to hide the distraction alert overlay. */
   dismissOverlay: () => ipcRenderer.invoke('ergoremind:dismiss-overlay') as Promise<void>,
   /** main to renderer: receives distraction alert details. */
@@ -57,6 +59,8 @@ const api: ergoremindAPI = {
   onFocusRestored: (callback: () => void) => subscribe<void>('ergoremind:focus-restored', callback),
   /** main to renderer: receives focus statistics updates. */
   onFocusStatsUpdated: (callback: (stats: FocusStats) => void) => subscribe<FocusStats>('ergoremind:focus-stats-updated', callback),
+  /** main to renderer: receives Focus Guard permission or persistence errors. */
+  onFocusGuardError: (callback: (message: string) => void) => subscribe<string>('ergoremind:focus-error', callback),
   /** main to renderer: receives notice when Focus Guard is toggled in system tray. */
   onToggleFocusGuard: (callback: () => void) => subscribe<void>('ergoremind:toggle-focus-guard', callback),
 };

@@ -54,6 +54,7 @@ export interface AppSettings {
   focusCheckInterval: number;
   distractionAlertDelay: number;
   distractionCooldown: number;
+  focusPrivacyNoticeSeen: boolean;
 }
 
 export interface DistractionEvent {
@@ -73,6 +74,11 @@ export interface FocusStats {
 export interface ActiveWindowInfo {
   appName: string;
   windowTitle: string;
+}
+
+export interface FocusGuardCapability {
+  supported: boolean;
+  reason: string | null;
 }
 
 export interface DailyStats {
@@ -108,10 +114,12 @@ export interface ergoremindAPI {
   startFocusGuard: () => Promise<void>;
   stopFocusGuard: () => Promise<void>;
   getFocusStats: () => Promise<FocusStats>;
+  getFocusGuardCapability: () => Promise<FocusGuardCapability>;
   dismissOverlay: () => Promise<void>;
   onDistractionDetected: (callback: (event: { appName: string; duration: number }) => void) => () => void;
   onFocusRestored: (callback: () => void) => () => void;
   onFocusStatsUpdated: (callback: (stats: FocusStats) => void) => () => void;
+  onFocusGuardError: (callback: (message: string) => void) => () => void;
   onToggleFocusGuard: (callback: () => void) => () => void;
 }
 

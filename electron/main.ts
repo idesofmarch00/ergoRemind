@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain, powerMonitor, protocol, net } from 'electron';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { AppSettings, DailyStats, NotificationPayload, PostureSession, TrayStatus } from '../src/types';
+import type { AppSettings, DailyStats, FocusGuardCapability, NotificationPayload, PostureSession, TrayStatus } from '../src/types';
 import { sendNativeNotification } from './notifications';
-import { createAppTray, updateTrayIcon } from './tray';
+import { createAppTray, setFocusDistracted, setFocusGuardEnabled, updateTrayIcon } from './tray';
 import { readSettings, readStats, saveSession, saveSettings, saveStats } from './store';
 import { startWellnessTimers, stopWellnessTimers } from './timers';
 import { FocusMonitor } from './focusMonitor';
@@ -35,8 +35,16 @@ let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 let focusMonitor: FocusMonitor | null = null;
 
+/** Returns platform support information for Focus Guard active-window polling. */
+function getFocusGuardCapability(): FocusGuardCapability {
+  return process.platform === 'darwin'
+    ? { supported: true, reason: null }
+    : { supported: false, reason: 'Focus Guard active-window detection currently requires macOS.' };
+}
+
 /** Starts the Focus Guard monitor engine. */
 async function startFocusGuardInternal(): Promise<void> {
+  if (!getFocusGuardCapability().supported) return;
   const settings = await readSettings();
   if (focusMonitor) {
     await focusMonitor.stop();
@@ -63,15 +71,17 @@ async function startFocusGuardInternal(): Promise<void> {
       showOverlay({ appName, duration: durationMs });
     },
     onStateChange: (state) => {
-      if (state === 'alerting' || state === 'distracted') {
-        updateTrayIcon('distracted');
-      } else {
-        updateTrayIcon('good');
+      setFocusDistracted(state === 'alerting' || state === 'distracted' || state === 'cooldown');
+    },
+    onError: (message) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ergoremind:focus-error', message);
       }
-    }
+    },
   });
   
   focusMonitor.start();
+  setFocusGuardEnabled(true);
 }
 
 /** Creates the main Electron browser window with secure renderer settings. */
@@ -94,7 +104,6 @@ async function createWindow(): Promise<BrowserWindow> {
   });
 
   window.once('ready-to-show', () => {
-    window.webContents.openDevTools();
     if (!settings.startMinimized) {
       window.show();
     }
@@ -107,7 +116,7 @@ async function createWindow(): Promise<BrowserWindow> {
       updateTrayIcon('paused');
     }
     if (focusMonitor) {
-      focusMonitor.pause();
+      void focusMonitor.pause();
       hideOverlay();
     }
   });
@@ -118,7 +127,7 @@ async function createWindow(): Promise<BrowserWindow> {
       updateTrayIcon('paused');
     }
     if (focusMonitor) {
-      focusMonitor.pause();
+      void focusMonitor.pause();
       hideOverlay();
     }
   });
@@ -168,13 +177,18 @@ function registerIpcHandlers(): void {
   ipcMain.handle('ergoremind:get-settings', async (): Promise<AppSettings> => readSettings());
 
   ipcMain.handle('ergoremind:save-settings', async (_event, settings: Partial<AppSettings>): Promise<AppSettings> => {
-    const updated = await saveSettings(settings);
+    const capability = getFocusGuardCapability();
+    const safeUpdate = settings.focusGuardEnabled && !capability.supported
+      ? { ...settings, focusGuardEnabled: false }
+      : settings;
+    const updated = await saveSettings(safeUpdate);
     if (mainWindow) {
       startWellnessTimers(mainWindow, updated);
     }
     
     // Dynamically start/stop or update Focus Guard settings
     if (updated.focusGuardEnabled) {
+      setFocusGuardEnabled(true);
       if (focusMonitor) {
         focusMonitor.updateSettings(updated);
       } else {
@@ -186,7 +200,7 @@ function registerIpcHandlers(): void {
         focusMonitor = null;
       }
       destroyOverlay();
-      updateTrayIcon('good');
+      setFocusGuardEnabled(false);
     }
     
     return updated;
@@ -226,13 +240,15 @@ function registerIpcHandlers(): void {
       focusMonitor = null;
     }
     destroyOverlay();
-    updateTrayIcon('good');
+    setFocusGuardEnabled(false);
   });
 
   ipcMain.handle('ergoremind:get-focus-stats', async () => {
     const stats = await readStats();
     return stats.focusStats;
   });
+
+  ipcMain.handle('ergoremind:get-focus-capability', async (): Promise<FocusGuardCapability> => getFocusGuardCapability());
 
   ipcMain.handle('ergoremind:dismiss-overlay', async (): Promise<void> => {
     hideOverlay();
@@ -246,14 +262,15 @@ app.whenReady().then(async () => {
   // Set up standard handler for the 'app' scheme to fetch local files in dist
   protocol.handle('app', (request) => {
     const url = new URL(request.url);
-    const filePath = path.join(__dirname, '../dist', url.pathname);
+    const relativePath = path.join(url.hostname, decodeURIComponent(url.pathname));
+    const filePath = path.join(__dirname, '../dist', relativePath);
     return net.fetch(pathToFileURL(filePath).toString());
   });
 
   const window = await createWindow();
-  startWellnessTimers(window, await readSettings());
-  
   const settings = await readSettings();
+  startWellnessTimers(window, settings);
+  setFocusGuardEnabled(settings.focusGuardEnabled && getFocusGuardCapability().supported);
   if (settings.focusGuardEnabled) {
     await startFocusGuardInternal();
   }

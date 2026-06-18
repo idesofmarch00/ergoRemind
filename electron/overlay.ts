@@ -5,6 +5,15 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let overlayWindow: BrowserWindow | null = null;
+let dismissTimer: NodeJS.Timeout | null = null;
+
+/** Clears the current overlay auto-dismiss timer. */
+function clearDismissTimer(): void {
+  if (dismissTimer) {
+    clearTimeout(dismissTimer);
+    dismissTimer = null;
+  }
+}
 
 /** Creates the transparent, frameless overlay window. */
 export function createOverlayWindow(): BrowserWindow {
@@ -58,11 +67,13 @@ export function createOverlayWindow(): BrowserWindow {
 /** Shows the overlay window with distraction alert data. */
 export function showOverlay(data: { appName: string; duration: number }): void {
   const win = createOverlayWindow();
+  clearDismissTimer();
   
   const sendData = () => {
     if (win && !win.isDestroyed()) {
       win.webContents.send('ergoremind:distraction-detected', data);
       win.showInactive(); // Show without taking keyboard focus
+      dismissTimer = setTimeout(hideOverlay, 5000);
     }
   };
 
@@ -75,6 +86,7 @@ export function showOverlay(data: { appName: string; duration: number }): void {
 
 /** Hides the overlay window. */
 export function hideOverlay(): void {
+  clearDismissTimer();
   if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
     overlayWindow.webContents.send('ergoremind:focus-restored');
     // Hide it with a small delay to allow fade-out animation in React renderer
@@ -88,6 +100,7 @@ export function hideOverlay(): void {
 
 /** Destroys the overlay window when Focus Guard is disabled. */
 export function destroyOverlay(): void {
+  clearDismissTimer();
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     overlayWindow.destroy();
   }

@@ -1,4 +1,4 @@
-import type { AppSettings } from '@/types';
+import type { AppSettings, FocusGuardCapability } from '@/types';
 import { CameraSelector } from './CameraSelector';
 import { FocusSettings } from './FocusSettings';
 
@@ -7,11 +7,13 @@ interface SettingsPanelProps {
   cameras: MediaDeviceInfo[];
   onSettingsChange: (update: Partial<AppSettings>) => void;
   onCalibrate: () => void;
+  focusCapability: FocusGuardCapability;
+  focusError: string | null;
 }
 
 /** Renders all configurable posture and reminder settings. */
 export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
-  const { settings, cameras, onSettingsChange, onCalibrate } = props;
+  const { settings, cameras, onSettingsChange, onCalibrate, focusCapability, focusError } = props;
 
   /** Updates a numeric setting from a range input. */
   function updateNumber(key: keyof Pick<AppSettings, 'slouchThreshold' | 'alertDelay' | 'alertCooldown' | 'standUpInterval' | 'eyeRuleInterval'>) {
@@ -58,7 +60,12 @@ export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
         <ToggleSetting label="Start minimized" checked={settings.startMinimized} onChange={updateBoolean('startMinimized')} />
         
         {/* Focus Guard Settings Section */}
-        <FocusSettings settings={settings} onSettingsChange={onSettingsChange} />
+        <FocusSettings
+          settings={settings}
+          onSettingsChange={onSettingsChange}
+          capability={focusCapability}
+          error={focusError}
+        />
       </div>
     </section>
   );

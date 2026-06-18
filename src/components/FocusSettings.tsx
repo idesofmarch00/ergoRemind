@@ -1,32 +1,29 @@
 import React, { useState } from 'react';
-import type { AppSettings } from '../types';
+import type { AppSettings, FocusGuardCapability } from '../types';
+import { FOCUS_PRESETS, togglePreset } from '../utils/focusUtils';
 
 interface FocusSettingsProps {
   settings: AppSettings;
   onSettingsChange: (update: Partial<AppSettings>) => void;
+  capability: FocusGuardCapability;
+  error: string | null;
 }
-
-const PRESETS: Record<string, string[]> = {
-  Entertainment: ['YouTube', 'Netflix', 'Twitch', 'Disney+', 'Hulu', 'Prime Video'],
-  Social: ['Twitter', 'X', 'Reddit', 'Instagram', 'Facebook', 'TikTok', 'Snapchat'],
-  Chat: ['Discord', 'Telegram', 'WhatsApp'],
-  Gaming: ['Steam', 'Epic Games', 'Battle.net'],
-};
 
 /**
  * FocusSettings handles user configuration for Focus Guard distraction monitoring.
  * It provides preset blocklists, manual keyword editing, and interval/delay/cooldown sliders.
  */
 export function FocusSettings(props: FocusSettingsProps): JSX.Element {
-  const { settings, onSettingsChange } = props;
+  const { settings, onSettingsChange, capability, error } = props;
   const [newKeyword, setNewKeyword] = useState('');
   const [showPrivacyNotice, setShowPrivacyNotice] = useState(false);
 
   const handleToggleEnable = (event: React.ChangeEvent<HTMLInputElement>): void => {
     const isChecked = event.target.checked;
-    if (isChecked && settings.blocklist.length === 0) {
-      // First-time show privacy notice or helpful hint
+    if (isChecked && !settings.focusPrivacyNoticeSeen) {
       setShowPrivacyNotice(true);
+      onSettingsChange({ focusGuardEnabled: true, focusPrivacyNoticeSeen: true });
+      return;
     }
     onSettingsChange({ focusGuardEnabled: isChecked });
   };
@@ -55,20 +52,8 @@ export function FocusSettings(props: FocusSettingsProps): JSX.Element {
     });
   };
 
-  const handleAddPreset = (category: string): void => {
-    const presetWords = PRESETS[category] || [];
-    const currentList = [...settings.blocklist];
-
-    presetWords.forEach((word) => {
-      const exists = currentList.some(
-        (k) => k.toLowerCase() === word.toLowerCase()
-      );
-      if (!exists) {
-        currentList.push(word);
-      }
-    });
-
-    onSettingsChange({ blocklist: currentList });
+  const handleTogglePreset = (category: string): void => {
+    onSettingsChange({ blocklist: togglePreset(settings.blocklist, FOCUS_PRESETS[category] ?? []) });
   };
 
   const updateNumber = (key: 'focusCheckInterval' | 'distractionAlertDelay' | 'distractionCooldown') => {
@@ -90,9 +75,19 @@ export function FocusSettings(props: FocusSettingsProps): JSX.Element {
           className="h-5 w-5 accent-amber-500 focus:ring-2 focus:ring-amber-400/40"
           type="checkbox"
           checked={settings.focusGuardEnabled}
+          disabled={!capability.supported}
           onChange={handleToggleEnable}
         />
       </label>
+
+      {!capability.supported && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">
+          {capability.reason}
+        </p>
+      )}
+      {error && (
+        <p className="rounded-md border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-300">{error}</p>
+      )}
 
       {showPrivacyNotice && settings.focusGuardEnabled && (
         <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-300 leading-normal relative">
@@ -116,14 +111,15 @@ export function FocusSettings(props: FocusSettingsProps): JSX.Element {
           <div>
             <span className="text-xs text-slate-400 block mb-2 font-medium">Quick-add categories:</span>
             <div className="flex flex-wrap gap-2">
-              {Object.keys(PRESETS).map((cat) => (
+              {Object.keys(FOCUS_PRESETS).map((cat) => (
                 <button
                   key={cat}
                   type="button"
-                  onClick={() => handleAddPreset(cat)}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-md border border-slate-700 bg-slate-800/40 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                  aria-pressed={(FOCUS_PRESETS[cat] ?? []).every((word) => settings.blocklist.some((keyword) => keyword.toLowerCase() === word.toLowerCase()))}
+                  onClick={() => handleTogglePreset(cat)}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-md border border-slate-700 bg-slate-800/40 hover:bg-slate-700 text-slate-300 hover:text-white transition aria-pressed:border-amber-500 aria-pressed:bg-amber-500/15 aria-pressed:text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                 >
-                  + {cat}
+                  {cat}
                 </button>
               ))}
             </div>

@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppSettings, DailyStats, PostureSession, DistractionEvent } from '../src/types';
+import { calculateFocusStats } from '../src/utils/focusUtils';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   slouchThreshold: 25,       // higher = more forgiving (minor tilts ignored)
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   focusCheckInterval: 5,
   distractionAlertDelay: 10,
   distractionCooldown: 60,
+  focusPrivacyNoticeSeen: false,
 };
 
 /** Returns today's date in YYYY-MM-DD format for stats file naming. */
@@ -139,24 +141,7 @@ export async function saveSession(session: PostureSession): Promise<DailyStats> 
 
 /** Recalculates and updates focusStats for a DailyStats object based on distractionEvents and totalTrackingMs. */
 export function recalculateFocusStats(stats: DailyStats): void {
-  const distractionEvents = stats.distractionEvents || [];
-  const totalDistractionMs = distractionEvents.reduce((acc, e) => acc + e.durationMs, 0);
-  const distractionCount = distractionEvents.length;
-  
-  const distractionsByApp: Record<string, number> = {};
-  for (const event of distractionEvents) {
-    distractionsByApp[event.appName] = (distractionsByApp[event.appName] || 0) + event.durationMs;
-  }
-
-  const totalTrackingMs = stats.totalTrackingMs || totalDistractionMs || 1; // avoid division by zero
-  const focusPercentage = Math.max(0, Math.min(100, Math.round(((totalTrackingMs - totalDistractionMs) / totalTrackingMs) * 100)));
-
-  stats.focusStats = {
-    totalDistractionMs,
-    distractionCount,
-    focusPercentage,
-    distractionsByApp,
-  };
+  stats.focusStats = calculateFocusStats(stats.distractionEvents ?? [], stats.totalTrackingMs ?? 0);
 }
 
 /** Saves a completed distraction event to today's stats file. */

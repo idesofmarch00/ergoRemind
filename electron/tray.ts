@@ -9,6 +9,8 @@ let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let paused = false;
 let focusGuardEnabled = false;
+let postureStatus: 'good' | 'bad' = 'good';
+let focusDistracted = false;
 
 /** Builds a small fallback tray icon when asset files are unavailable. */
 function createFallbackIcon(status: TrayStatus): Electron.NativeImage {
@@ -24,6 +26,7 @@ function createFallbackIcon(status: TrayStatus): Electron.NativeImage {
 
 /** Returns a tray icon from assets, falling back to an in-memory icon. */
 function loadTrayIcon(status: TrayStatus): Electron.NativeImage {
+  if (status === 'distracted') return createFallbackIcon(status);
   const iconPath = path.join(__dirname, '../assets/tray', `tray-${status}.png`);
   const image = nativeImage.createFromPath(iconPath);
   return image.isEmpty() ? createFallbackIcon(status) : image;
@@ -33,7 +36,23 @@ function loadTrayIcon(status: TrayStatus): Electron.NativeImage {
 function emitMonitoringState(window: BrowserWindow, nextPaused: boolean): void {
   paused = nextPaused;
   window.webContents.send(nextPaused ? 'ergoremind:pause-monitoring' : 'ergoremind:resume-monitoring');
-  updateTrayIcon(nextPaused ? 'paused' : 'good');
+  renderTrayStatus();
+}
+
+/** Resolves tray state with pause first, then bad posture, then distraction. */
+function getResolvedStatus(): TrayStatus {
+  if (paused) return 'paused';
+  if (postureStatus === 'bad') return 'bad';
+  if (focusDistracted) return 'distracted';
+  return 'good';
+}
+
+/** Applies the resolved icon and tooltip to the live tray. */
+function renderTrayStatus(): void {
+  const status = getResolvedStatus();
+  tray?.setImage(loadTrayIcon(status));
+  const focusText = focusGuardEnabled ? ` | Focus: ${focusDistracted ? 'Distracted' : 'Focused'}` : '';
+  tray?.setToolTip(`ergoRemind | Posture: ${postureStatus === 'bad' ? 'Bad' : 'Good'}${focusText}`);
 }
 
 /** Creates the system tray icon and contextual menu for app control. */
@@ -89,13 +108,29 @@ function buildTrayMenu(window: BrowserWindow): Electron.Menu {
 
 /** Updates the tray status icon to show good, bad, paused, or distracted posture/focus state. */
 export function updateTrayIcon(status: TrayStatus): void {
-  tray?.setImage(loadTrayIcon(status));
+  if (status === 'paused') {
+    paused = true;
+  } else {
+    paused = false;
+    if (status === 'good' || status === 'bad') {
+      postureStatus = status;
+    }
+  }
+  renderTrayStatus();
 }
 
 /** Updates the Focus Guard enabled state in the tray menu. */
 export function setFocusGuardEnabled(enabled: boolean): void {
   focusGuardEnabled = enabled;
+  if (!enabled) focusDistracted = false;
   if (tray && mainWindow) {
     tray.setContextMenu(buildTrayMenu(mainWindow));
   }
+  renderTrayStatus();
+}
+
+/** Updates only the Focus Guard portion of the combined tray status. */
+export function setFocusDistracted(distracted: boolean): void {
+  focusDistracted = distracted;
+  renderTrayStatus();
 }
